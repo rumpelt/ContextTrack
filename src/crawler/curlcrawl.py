@@ -25,39 +25,49 @@ def getlinks(htmldoc , currentlink, parentdomain):
     Need to conver it into string class with proper encoding.
     
     """
+#    print 'current ', currentlink
+    if htmldoc is None:
+        return []
     soup = BeautifulSoup(htmldoc)
     result = list()
-    links  = soup.find_all('a',href=re.compile('^[.][.]/.*'))
+    links = soup.find_all('a')
     for link in links:
-        result.append(currentlink+'/'+urllib.quote(link.get('href').encode('utf-8')))
+        link = link.get('href')
+        if link is None:
+            continue
+        ln = link.encode('utf-8')
+        relativepath = re.compile('^[.][.]/.+')
+        if relativepath.match(ln):
+            #print 'adding relative apt ' ,ln
+            result.append(currentlink+'/'+urllib.quote(ln))
+            continue 
+
+        absolutepath = re.compile('^/.+')
+        if absolutepath.match(ln):
+            #print 'adding absolute apt ' ,ln
+            result.append(parentdomain+urllib.quote(ln))
+            continue
+
+        absolutename = re.compile('^[^:]+$')
+        if absolutename.match(ln):
+           #print 'adding absolute name ' ,ln
+           result.append(parentdomain+'/'+urllib.quote(ln))
+           continue  
         
-    links = None
-    links  = soup.find_all('a',href=re.compile('^/.+'))
-    for link in links:
-        result.append(parentdomain+urllib.quote(link.get('href').encode('utf-8')))
-    
-    links = None
-    links  = soup.find_all('a',href=re.compile('^[^:/]+$'))
-    for link in links:
-        link = link.get('href').encode('utf-8')
-        result.append(parentdomain+'/'+urllib.quote(link))
-        
-    links = None
-    parsedurl = urlparse.urlparse(parentdomain)
-    netloc = None
-    if parsedurl.netloc == '':
-       netloc = '(://)|(www[s]?[.])'+parsedurl.path
-    else:
-        netloc = '://'+  parsedurl.netloc
-    #print 'netloc ', ' ', netloc
-    links = soup.find_all('a' ,href=re.compile(netloc+'.+'))  
-    for link in links:
-    #    print link 
-        ln = link.get('href').encode('utf-8')
-        result.append(urllib.quote(ln,':/'))    
+        parsedurl = urlparse.urlparse(parentdomain)
+        netloc = None
+        if parsedurl.netloc == '':
+            netloc = '((://)|(www[s]?[.]))'+parsedurl.path.replace('.','[.]')
+        else:
+            netloc = '://'+  parsedurl.netloc.replace('.','[.]')
+        fullcheck = re.compile(netloc+'.+')
+        if fullcheck.search(ln):
+           #print ' adding full searhc', ' ', ln
+           result.append(urllib.quote(ln,':/')) 
+  
     return result
 
-def dumpcontent(dirName , url, htmlcontent , mode):
+def dumpcontent(dirName , url, htmlcontent , mode ):
     #print url
     parsedurl = urlparse.urlparse(url)
     path = parsedurl.path
@@ -78,7 +88,7 @@ def dumpcontent(dirName , url, htmlcontent , mode):
      
         
     
-def curlcrawl(urls,  num_conn=1 , dumpdir = None , mode=750):
+def curlcrawl(urls,  num_conn=1 , maxlink=100,dumpdir = None , mode=750):
     """    
     crawl a list of sites. 
     this function contains urlmap dict which we keeps on growing.
@@ -95,14 +105,15 @@ def curlcrawl(urls,  num_conn=1 , dumpdir = None , mode=750):
     # urlmap will keep on growing so we need to call this functon with better strcuture
     
     urlmap = dict()
+    linkcounts = dict()
     globalbuffer = dict()
     for url in urls:
         url = url.strip()
         if not url:
             continue
         queue.append(url )
-        
-        urlmap[url] = url
+        linkcounts[urlparse.urlparse(url).netloc] = 0
+        urlmap[url] = urlparse.urlparse(url).netloc
     
     print queue
     num_urls = len(queue)
@@ -154,25 +165,33 @@ def curlcrawl(urls,  num_conn=1 , dumpdir = None , mode=750):
                 eurl =  c.getinfo(pycurl.EFFECTIVE_URL)
                 parent =  urlmap[c.url]
                 htmlc = globalbuffer[c.url].getvalue()
-                links = getlinks(htmlc , eurl,
-                                 parent)
-            #    if dumpdir is not None:
-                     
-                for link in links:
-                    if urlmap.get(link) is None:
-                        queue.append(link)
-                        urlmap[link] = parent
-                        num_urls = num_urls +1
+                #linkcounts[parent] = linkcounts[parent] + 1
+                
                 if dumpdir is not None:
                     dumpcontent(dumpdir,  eurl,htmlc, mode )
                 globalbuffer[c.url].truncate(0)
                 globalbuffer[c.url] = None
                 freelist.append(c)
-                print 'fetched ', ' ', c.url
+ 
+                if linkcounts[parent] > maxlink:
+                    htmlc = None
+                links = getlinks(htmlc , eurl,
+                                 parent)
+                
+            #    if dumpdir is not None:
+                     
+                for link in links:
+                    if linkcounts[parent] <= maxlink and urlmap.get(link) is None:
+                        queue.append(link)
+                        urlmap[link] = parent
+                        num_urls = num_urls +1
+                        linkcounts[parent] = linkcounts[parent] + 1
+
+#                print 'fetched ', ' ', eurl
             for c, errno, errmsg in err_list:
                 c.fp = None
                 m.remove_handle(c)
-                print "Failed: ", c.url, errno, errmsg
+ #               print "Failed: ", c.url, errno, errmsg 
                 freelist.append(c)
             num_processed = num_processed + len(ok_list) + len(err_list)
             if num_q == 0:
