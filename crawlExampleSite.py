@@ -16,6 +16,7 @@ examplelist = list()
 exhandler = saxparser.ExampleFileHandler(examplelist)
 saxparser.parse('/usa/arao/trec/contexttrec12/examples.txt',exhandler)
 for ex in examplelist:
-    curlcrawl.curlcrawl([ex.attribute['url']],dumpdir='/usa/arao/trec/contexttrec12/examplesites/'+ex.attribute['number'], mode = 0750)
+    fetched = curlcrawl.curlcrawl([ex.attribute['url']],maxlink=20,dumpdir='/usa/arao/trec/contexttrec12/examplesites/'+ex.attribute['number'], mode = 0750)
+    print ex.attribute['number'] , ' ', fetched
 
 

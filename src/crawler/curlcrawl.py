@@ -88,13 +88,14 @@ def dumpcontent(dirName , url, htmlcontent , mode ):
      
         
     
-def curlcrawl(urls,  num_conn=1 , maxlink=100,dumpdir = None , mode=750):
+def curlcrawl(urls,  num_conn=1 , maxlink=100,dumpdir = None , mode=0750):
     """    
     crawl a list of sites. 
     this function contains urlmap dict which we keeps on growing.
     Ideally there should be very limited amount of urls.
     This method cause memory to bloat. Need to improve upon this.
     """
+    totalfetched = 0
     try:
         import signal
         from signal import SIGPIPE, SIG_IGN
@@ -186,8 +187,9 @@ def curlcrawl(urls,  num_conn=1 , maxlink=100,dumpdir = None , mode=750):
                         urlmap[link] = parent
                         num_urls = num_urls +1
                         linkcounts[parent] = linkcounts[parent] + 1
-
-#                print 'fetched ', ' ', eurl
+                totalfetched = totalfetched + 1
+         #       print 'fetched ', ' ', eurl
+            
             for c, errno, errmsg in err_list:
                 c.fp = None
                 m.remove_handle(c)
@@ -205,3 +207,4 @@ def curlcrawl(urls,  num_conn=1 , maxlink=100,dumpdir = None , mode=750):
             c.fp = None
             c.close()
     m.close()
+    return totalfetched
