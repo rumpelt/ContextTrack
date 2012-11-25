@@ -11,12 +11,13 @@ For example
 """
 
 import saxparser
+
 from crawler import curlcrawl
 examplelist = list()
 exhandler = saxparser.ExampleFileHandler(examplelist)
 saxparser.parse('/usa/arao/trec/contexttrec12/examples.txt',exhandler)
-for ex in examplelist:
-    fetched = curlcrawl.curlcrawl([ex.attribute['url']],maxlink=20,dumpdir='/usa/arao/trec/contexttrec12/examplesites/'+ex.attribute['number'], mode = 0750)
+for ex in examplelist[0:3]:
+    fetched = curlcrawl.curlcrawl([ex.attribute['url']],maxlink=10,dumpdir='/usa/arao/trec/contexttrec12/texamplesites/'+ex.attribute['number'], mode = 0750)
     print ex.attribute['number'] , ' ', fetched
 
 

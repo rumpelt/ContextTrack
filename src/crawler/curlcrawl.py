@@ -10,13 +10,15 @@ import pycurl
 import StringIO
 from bs4 import BeautifulSoup
 import os
+import html5lib
 import urlparse
+
 # We should ignore SIGPIPE when using pycurl.NOSIGNAL - see
 # the libcurl tutorial for more info.
 
 
 import re
-
+import codecs
 def getlinks(htmldoc , currentlink, parentdomain):
     """
     This function returns all the links in the html doc such that
@@ -25,10 +27,15 @@ def getlinks(htmldoc , currentlink, parentdomain):
     Need to conver it into string class with proper encoding.
     
     """
-#    print 'current ', currentlink
-    if htmldoc is None:
+   # print 'current ', currentlink
+    if htmldoc is None or len(htmldoc) <= 0:
         return []
-    soup = BeautifulSoup(htmldoc)
+    try:
+        soup = BeautifulSoup(htmldoc,'html5lib')
+    except TypeError:
+#       print 'curlcrawl.py:getlinks <weird htmlcontent> :',' ', htmldoc
+       return []
+   # print soup
     result = list()
     links = soup.find_all('a')
     for link in links:
@@ -66,24 +73,76 @@ def getlinks(htmldoc , currentlink, parentdomain):
            result.append(urllib.quote(ln,':/')) 
   
     return result
+class urlbuffer:
+    def __init__(self, dumpdir , url, mode, preservepath=False):
+        self.dumpdir = dumpdir
+        self.url = url
+        self.mode = mode
+        self.preservepath = preservepath
+        self.fullpath = None
+       # self.writeobject = StringIO.StringIO()
 
-def dumpcontent(dirName , url, htmlcontent , mode ):
-    #print url
-    parsedurl = urlparse.urlparse(url)
-    path = parsedurl.path
-    if parsedurl.path == '' or parsedurl.path == '/':
-        path = 'base.html'
-    fullpath = dirName+'/'+path
-    try:
-        os.makedirs(os.path.dirname(fullpath), mode)
-    except:
-        pass
-    try:
-        fhandle = open(fullpath, 'wb')
-        fhandle.write(htmlcontent)
+    def creatediskspace(self):
+        if self.dumpdir is None:
+            return
+        parsedurl = urlparse.urlparse(self.url)
+        if self.preservepath:
+            path = parsedurl.path.strip()
+        else:
+            path = parsedurl.path.replace('/','')
+        if path == '' or path == '/':
+            path = 'base.html'
+ 
+        if path[-1] == '/':
+            path = path[:-1]
+
+        self.fullpath = unicode(self.dumpdir)+unicode('/')+path
+        try:
+            os.makedirs(os.path.dirname(self.fullpath),self.mode)
+        except:
+            pass
+            
+               
+    def write(self,buff):
+        if self.dumpdir is None:
+            print buff
+            return
+        if self.fullpath is None:
+            self.creatediskspace()            
+        fhandle = codecs.open(self.fullpath, encoding='utf-8',mode='ab',errors='ignore')
+        fhandle.write(unicode(buff, encoding="utf-8", errors="ignore"))
         fhandle.close()
-    except:
-        return
+  
+    def getvalue(self):
+        if self.fullpath is not None:
+            return codecs.open(self.fullpath,encoding="utf-8").read()
+        return None    
+    def dumpcontent(dirName , url, htmlcontent ,  mode , preservepath=False ):
+        # print url
+        parsedurl = urlparse.urlparse(url)
+
+        if preservepath:
+            path = parsedurl.path.strip()
+        else:
+            path = parsedurl.path.replace('/','')
+ 
+        if path == '' or path == '/':
+            path = 'base.html'
+ 
+        if path[-1] == '/':
+            path = path[:-1]
+#    print path
+        fullpath = unicode(dirName)+unicode('/')+unicode(path,'utf-8','ignore')
+        try:
+            os.makedirs(os.path.dirname(fullpath), mode)
+        except:
+            pass
+        try:
+            fhandle = codecs.open(fullpath, encoding='utf-8',mode='ab')
+            fhandle.write(htmlcontent)
+            fhandle.close()
+        except:
+            return
         
      
         
@@ -91,10 +150,11 @@ def dumpcontent(dirName , url, htmlcontent , mode ):
 def curlcrawl(urls,  num_conn=1 , maxlink=100,dumpdir = None , mode=0750):
     """    
     crawl a list of sites. 
-    this function contains urlmap dict which we keeps on growing.
+OA    this function contains urlmap dict which we keeps on growing.
     Ideally there should be very limited amount of urls.
     This method cause memory to bloat. Need to improve upon this.
     """
+
     totalfetched = 0
     try:
         import signal
@@ -116,9 +176,10 @@ def curlcrawl(urls,  num_conn=1 , maxlink=100,dumpdir = None , mode=0750):
         linkcounts[urlparse.urlparse(url).netloc] = 0
         urlmap[url] = urlparse.urlparse(url).netloc
     
-    print queue
+#    print queue
     num_urls = len(queue)
     num_conn = min(num_conn, num_urls)
+
     assert 1 <= num_conn <= 10000, "invalid number of concurrent connections"  
     m = pycurl.CurlMulti()
     m.handles = []
@@ -140,10 +201,11 @@ def curlcrawl(urls,  num_conn=1 , maxlink=100,dumpdir = None , mode=0750):
         while queue and freelist:
             url = queue.pop(0)
             c = freelist.pop()
-            globalbuffer[url] = StringIO.StringIO()
+#            globalbuffer[url] = StringIO.StringIO()
+            globalbuffer[url] = urlbuffer(dumpdir, url, mode)
             c.fp = globalbuffer[url].write
            # print url
-            c.setopt(pycurl.URL,str(url))
+            c.setopt(pycurl.URL,url.encode('utf-8'))
             
             # in following use WRITE_FUNC to write the data STORE use from StringIO import StringIO
             c.setopt(pycurl.WRITEFUNCTION, c.fp)
@@ -165,20 +227,13 @@ def curlcrawl(urls,  num_conn=1 , maxlink=100,dumpdir = None , mode=0750):
                 m.remove_handle(c)
                 eurl =  c.getinfo(pycurl.EFFECTIVE_URL)
                 parent =  urlmap[c.url]
-                htmlc = globalbuffer[c.url].getvalue()
-                #linkcounts[parent] = linkcounts[parent] + 1
-                
-                if dumpdir is not None:
-                    dumpcontent(dumpdir,  eurl,htmlc, mode )
-                globalbuffer[c.url].truncate(0)
-                globalbuffer[c.url] = None
                 freelist.append(c)
  
                 if linkcounts[parent] > maxlink:
                     htmlc = None
-                links = getlinks(htmlc , eurl,
+                links = getlinks(globalbuffer[c.url].getvalue() , eurl,
                                  parent)
-                
+             #   print 'gt links' + len(links)
             #    if dumpdir is not None:
                      
                 for link in links:
